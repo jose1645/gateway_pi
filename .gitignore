@@ -19,6 +19,10 @@ data/
 logs/
 *.log
 
+# Certificados y llaves privadas (Seguridad)
+certs/*.key
+certs/*.crt
+
 # Configuraciones con secretos locales
 config.local.yaml
 .env

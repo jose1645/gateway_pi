@@ -1,137 +1,70 @@
 ﻿# ====================================================================
-# SYNTECK INDUSTRIAL EDGE GATEWAY - CONFIGURACIÓN NATIVA
-# Hardware Target: Raspberry Pi 3 (ARMv8 1GB RAM) & PC Local (Windows/Linux)
-# Runtime: Python 3 Nativo (Sin Docker, Sin Entorno Virtual)
+# SYNTECK INDUSTRIAL EDGE GATEWAY - CONFIGURACIÓN AWS IOT
+# Target: Raspberry Pi 3 (ARMv8 1GB RAM) & PC Local (Windows/Linux)
+# Runtime: Python 3 Nativo (Sin Docker, Sin venv)
 # ====================================================================
 
 gateway:
-  id: "GW-PI3-001"
-  name: "Gateway Central Planta Synteck"
-  plant_id: "PLANTA-CENTRAL-01"
-  description: "Gateway inteligente Edge para adquisición y control industrial"
-  heartbeat_interval_sec: 10
-  log_level: "INFO" # DEBUG, INFO, WARNING, ERROR
+  id: "SN-D1PKP3UHM"                      # Thing Name / Client ID en AWS IoT Core
+  name: "Gateway Central Raspberry Pi 3"
+  partner: "inmapro"
+  client: "admin"
+  plant_slug: "eficienciaenergeticahome"
+  heartbeat_interval_sec: 15
+  log_level: "INFO"
 
-# ── COMUNICACIÓN HACIA LA NUBE / SERVIDOR CENTRAL (NORTHBOUND) ──────
+# ── ENLACE SEGURO A AWS IOT CORE (NORTHBOUND) ───────────────────────
 northbound:
-  mqtt:
+  aws_iot:
     enabled: true
-    host: "127.0.0.1"          # Host de EMQX o Broker Central (IP local o dominio cloud)
-    port: 1883
-    username: ""
-    password: ""
+    endpoint: "a1uw1qi4z3nyi4-ats.iot.us-east-1.amazonaws.com"
+    # Puerto 443 con TLS ALPN (x-amzn-mqtt-ca): Permite atravesar firewalls
+    # industriales que bloquean el puerto 8883 sin pedir permisos a IT.
+    port: 443
+    certs_dir: "certs"
+    cert_file: "SN-D1PKP3UHM-cert.pem.crt"
+    key_file: "SN-D1PKP3UHM-private.pem.key"
+    root_ca_file: "AmazonRootCA1.pem"
     keepalive: 30
-    use_tls: false
-    # Tópicos base
-    topic_telemetry: "v1/gateways/{id}/telemetry"
-    topic_presence: "v1/gateways/{id}/presence"
-    topic_alarms: "v1/gateways/{id}/alarms"
-    topic_commands: "v1/gateways/{id}/commands"
-    topic_ack: "v1/gateways/{id}/ack"
-  http_fallback:
-    enabled: false
-    url: "http://127.0.0.1:8000/api/v1/edge/sync"
-    auth_token: ""
-    timeout_sec: 5
+
+# ── OBSERVABILIDAD Y SALUD DEL NODO EDGE ─────────────────────────────
+observability:
+  enabled: true
+  publish_interval_sec: 60       # Intervalo del reporte completo de salud
+  include_in_telemetry: true     # Agrega métricas vitales (CPU temp, RAM, undervoltage) en cada paquete
+  thresholds:
+    cpu_temp_warning_c: 75.0     # Advertir si la Pi 3 supera 75°C
+    cpu_temp_critical_c: 82.0    # Crítico antes del throttling térmico (85°C)
+    ram_warning_pct: 85.0        # Advertir si el consumo de RAM supera 85%
+    disk_warning_pct: 90.0       # Advertir si la tarjeta MicroSD está casi llena
 
 # ── BUFFER LOCAL Y STORE & FORWARD (RESILIENCIA SIN INTERNET) ───────
 store_and_forward:
   db_path: "data/buffer.db"
-  max_records: 200000          # Limite para cuidar el espacio en MicroSD
-  batch_size: 50               # Enviar en bloques de 50 registros por ráfaga
-  flush_interval_sec: 2.0      # Intentar vaciar el buffer cada 2 segundos
-  wal_mode: true               # SQLite Write-Ahead Logging (rápido y seguro en SD)
+  max_records: 200000
+  batch_size: 50
+  flush_interval_sec: 2.0
+  wal_mode: true
 
 # ── MOTOR DE INTELIGENCIA Y REGLAS EN EL BORDE (EDGE RULES) ─────────
 rule_engine:
-  # Report by Exception: no satura la red si el valor no cambia
-  deadband_percent: 0.2        # Publicar sólo si el cambio supera el 0.2%
-  force_publish_sec: 30        # Forzar envío cada 30s aunque el tag no cambie
+  deadband_percent: 0.2          # Report by exception
+  force_publish_sec: 30          # Heartbeat forzado si no hay cambios
   alarms:
     - id: "ALM_TEMP_CALDERA_ALTA"
       tag: "caldera_temp"
       condition: ">"
       threshold: 95.0
       severity: "CRITICAL"
-      message: "Temperatura de caldera excede límite de seguridad (95°C)"
-    - id: "ALM_PRESION_BAJA"
-      tag: "linea_presion_psi"
-      condition: "<"
-      threshold: 30.0
-      severity: "WARNING"
-      message: "Presión en línea neumática baja por debajo de 30 PSI"
+      message: "Temperatura de caldera excede límite seguro (95°C)"
 
 # ── ADQUISICIÓN DE CAMPO (SOUTHBOUND DRIVERS) ────────────────────────
 drivers:
-  # 1. Modbus TCP (PLCs Ethernet, analizadores de red)
-  modbus_tcp:
-    - id: "plc_linea_1"
-      enabled: true
-      name: "PLC Principal Línea 1"
-      host: "127.0.0.1"        # IP del PLC en la red OT / LAN industrial
-      port: 502
-      unit_id: 1
-      poll_interval_ms: 1000
-      timeout_sec: 2.0
-      tags:
-        - name: "caldera_temp"
-          address: 40001
-          type: "float32"      # float32, int16, uint16, int32, uint32, bool
-          byte_order: "ABCD"   # ABCD (Big Endian), CDAB (Little Endian swap), etc.
-          scale: 0.1           # Conversión y = (raw * scale) + offset
-          offset: 0.0
-          unit: "°C"
-        - name: "bomba_1_estado"
-          address: 1           # Coil 1
-          type: "coil"
-          unit: "estado"
-        - name: "linea_presion_psi"
-          address: 40003
-          type: "float32"
-          scale: 1.0
-          offset: 0.0
-          unit: "PSI"
-
-  # 2. Modbus RTU (RS485 serie para variadores, medidores de energía)
-  modbus_rtu:
-    - id: "rs485_medidores"
-      enabled: false
-      name: "Bus RS485 Medidores de Energía"
-      port: "/dev/ttyUSB0"     # En Linux Pi (/dev/ttyUSB0) o en Windows (COM3)
-      baudrate: 9600
-      parity: "N"              # N, E, O
-      stopbits: 1
-      bytesize: 8
-      unit_id: 10
-      poll_interval_ms: 2000
-      tags:
-        - name: "consumo_kwh"
-          address: 30001
-          type: "uint32"
-          scale: 0.01
-          unit: "kWh"
-
-  # 3. Dispositivos MQTT de Campo (Sensores IoT inalámbricos / ESP32)
-  mqtt_sub:
-    - id: "sensores_vibracion"
-      enabled: false
-      broker_host: "127.0.0.1"
-      broker_port: 1883
-      subscribe_topic: "sensores/vibracion/#"
-
-  # 4. GPIO Nativo de Raspberry Pi 3
+  modbus_tcp: []
+  modbus_rtu: []
   rpi_gpio:
-    enabled: true
-    pins:
-      - pin: 17
-        mode: "INPUT"          # INPUT o OUTPUT
-        pull: "UP"             # UP, DOWN, OFF
-        tag: "paro_emergencia"
-        invert: false
-      - pin: 27
-        mode: "OUTPUT"
-        tag: "rele_alarma_torre"
-        initial: 0
+    enabled: false
+    pins: []
 
 # ── PANEL WEB LOCAL Y API REST EMBEBIDA ───────────────────────────────
 web:

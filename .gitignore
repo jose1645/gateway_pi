@@ -1,0 +1,30 @@
+﻿# Entornos virtuales
+venv/
+.venv/
+env/
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Base de datos y almacenamiento local
+data/
+*.db
+*.sqlite
+*.sqlite3
+*.db-wal
+*.db-shm
+
+# Logs
+logs/
+*.log
+
+# Configuraciones con secretos locales
+config.local.yaml
+.env
+
+# IDEs y sistemas operativos
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

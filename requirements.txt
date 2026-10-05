@@ -1,0 +1,10 @@
+﻿# Core Gateway Dependencies (No Docker, No Heavy Runtimes)
+paho-mqtt>=2.0.0
+pymodbus>=3.6.0
+pyserial>=3.5
+PyYAML>=6.0.0
+fastapi>=0.110.0
+uvicorn>=0.28.0
+psutil>=5.9.0
+requests>=2.31.0
+websockets>=12.0
